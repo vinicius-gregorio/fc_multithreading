@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -33,37 +34,11 @@ func main() {
 	ch1 := make(chan BrazilAPIAddress)
 	ch2 := make(chan ViaCepAddress)
 
-	go func() {
-		var address BrazilAPIAddress
-		req, err := http.Get(brasilApiUrl)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*1000)
+	defer cancel()
 
-		if err != nil {
-			panic(err)
-		}
-		defer req.Body.Close()
-
-		err = json.NewDecoder(req.Body).Decode(&address)
-		if err != nil {
-			panic(err)
-		}
-		ch1 <- address
-	}()
-
-	go func() {
-		var address ViaCepAddress
-		req, err := http.Get(viaCepUrl)
-
-		if err != nil {
-			panic(err)
-		}
-		defer req.Body.Close()
-
-		err = json.NewDecoder(req.Body).Decode(&address)
-		if err != nil {
-			panic(err)
-		}
-		ch2 <- address
-	}()
+	go getAddressFromBrazilAPI(ctx, ch1)
+	go getAddressFromViaCep(ctx, ch2)
 
 	select {
 	case brAPImsg := <-ch1:
@@ -74,8 +49,50 @@ func main() {
 		println("Via Cep:")
 		fmt.Println(viaCepMsg)
 
-	case <-time.After(5 * time.Second):
+	case <-ctx.Done():
 		println("Timeout")
 	}
 
+}
+
+func getAddressFromBrazilAPI(ctx context.Context, ch chan<- BrazilAPIAddress) {
+	var address BrazilAPIAddress
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, brasilApiUrl, nil)
+
+	if err != nil {
+		panic(err)
+	}
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		panic(err)
+	}
+	defer resp.Body.Close()
+
+	err = json.NewDecoder(resp.Body).Decode(&address)
+	if err != nil {
+		panic(err)
+	}
+	ch <- address
+}
+
+func getAddressFromViaCep(ctx context.Context, ch chan<- ViaCepAddress) {
+	var address ViaCepAddress
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, viaCepUrl, nil)
+	if err != nil {
+		panic(err)
+	}
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		panic(err)
+	}
+	defer resp.Body.Close()
+
+	err = json.NewDecoder(resp.Body).Decode(&address)
+	if err != nil {
+		panic(err)
+	}
+	ch <- address
 }
